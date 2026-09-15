@@ -100,12 +100,34 @@ All protected routes require `Authorization: Bearer <token>`.
 ### Super Admin
 
 - `GET /api/super-admin/dashboard`
+- `GET /api/super-admin/organizations`
+- `POST /api/super-admin/organizations`
 - `GET /api/super-admin/companies`
 - `POST /api/super-admin/companies`
 - `GET /api/super-admin/companies/:id`
 - `PUT /api/super-admin/companies/:id`
 - `PATCH /api/super-admin/companies/:id/status`
 - `DELETE /api/super-admin/companies/:id`
+
+Create organization request (the `/companies` compatibility route accepts the same body):
+
+```json
+{
+  "orgId": "ORG-001",
+  "numberOfLicenses": 10,
+  "startDate": "2026-09-15",
+  "endDate": "2027-09-14",
+  "companyName": "Acme Industries",
+  "category": "Automobile",
+  "phone": "9876543210",
+  "adminName": "Acme Admin",
+  "adminEmail": "admin@acme.example",
+  "adminPhone": "9876543210",
+  "password": "change-me"
+}
+```
+
+`orgId` must be unique, `numberOfLicenses` must be a positive whole number, and both subscription dates are required. The end date must be on or after the start date.
 
 ### Admin
 

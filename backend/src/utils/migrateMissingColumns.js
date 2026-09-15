@@ -30,12 +30,14 @@ const columns = {
     passwordChangedAt: { type: DataTypes.DATE, allowNull: true }
   },
   Companies: {
+    orgId: { type: DataTypes.STRING, allowNull: true, unique: true },
     phone: { type: DataTypes.STRING, allowNull: true },
     address: { type: DataTypes.TEXT, allowNull: true },
     city: { type: DataTypes.STRING, allowNull: true },
     state: { type: DataTypes.STRING, allowNull: true },
     pincode: { type: DataTypes.STRING, allowNull: true },
     adminPhone: { type: DataTypes.STRING, allowNull: true },
+    numberOfLicenses: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
     paymentStatus: { type: DataTypes.ENUM("PENDING", "PAID", "REJECTED"), allowNull: false, defaultValue: "PAID" },
     subscriptionAmount: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
     approvedByFinance: { type: DataTypes.INTEGER, allowNull: true },

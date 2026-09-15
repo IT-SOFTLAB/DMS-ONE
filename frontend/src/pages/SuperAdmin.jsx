@@ -18,7 +18,7 @@ const today = () => {
   return date.toISOString().slice(0, 10);
 };
 const createBlankForm = () => ({
-  companyName: "", category: "", description: "", phone: "", address: "", city: "", state: "", pincode: "",
+  orgId: "", companyName: "", category: "", description: "", phone: "", address: "", city: "", state: "", pincode: "", numberOfLicenses: "",
   startDate: today(), endDate: "", status: "active",
   adminName: "", adminEmail: "", adminPhone: "", password: "", confirmPassword: ""
 });
@@ -56,7 +56,7 @@ export default function SuperAdmin() {
   useEffect(() => { load(); }, []);
 
   const filtered = useMemo(() => organizations.filter((organization) => {
-    const text = `${organization.companyName} ${organization.category} ${organization.adminName} ${organization.adminEmail} ${organization.city} ${organization.state}`.toLowerCase();
+    const text = `${organization.orgId} ${organization.companyName} ${organization.category} ${organization.adminName} ${organization.adminEmail} ${organization.city} ${organization.state}`.toLowerCase();
     return text.includes(search.toLowerCase()) && (!statusFilter || organization.status === statusFilter);
   }), [organizations, search, statusFilter]);
 
@@ -161,13 +161,14 @@ function OrganizationForm({ form, setForm, onSubmit, saving }) {
   };
   const validate = () => {
     const next = {};
-    [["companyName", "Organization name"], ["category", "Category"], ["phone", "Organization phone"], ["startDate", "Start date"], ["adminName", "Admin CEO name"], ["adminEmail", "Admin CEO email"], ["adminPhone", "Admin CEO phone"], ["password", "Password"], ["confirmPassword", "Confirm password"]].forEach(([key, label]) => {
+    [["orgId", "Organization ID"], ["companyName", "Organization name"], ["category", "Category"], ["phone", "Organization phone"], ["numberOfLicenses", "Number of licenses"], ["startDate", "Start date"], ["endDate", "End date"], ["adminName", "Admin CEO name"], ["adminEmail", "Admin CEO email"], ["adminPhone", "Admin CEO phone"], ["password", "Password"], ["confirmPassword", "Confirm password"]].forEach(([key, label]) => {
       if (!String(form[key] || "").trim()) next[key] = `${label} is required`;
     });
     ["phone", "adminPhone"].forEach((key) => {
       if (form[key] && !/^\d{7,10}$/.test(form[key])) next[key] = "Enter 7 to 10 digits only";
     });
     if (form.pincode && !/^\d{6}$/.test(form.pincode)) next.pincode = "Enter a valid 6-digit pincode";
+    if (form.numberOfLicenses && (!Number.isInteger(Number(form.numberOfLicenses)) || Number(form.numberOfLicenses) < 1)) next.numberOfLicenses = "Enter a positive whole number";
     if (form.adminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.adminEmail)) next.adminEmail = "Enter a valid email address";
     if (form.startDate && form.startDate < today()) next.startDate = "Start date cannot be in the past";
     if (form.endDate && form.endDate < today()) next.endDate = "End date cannot be in the past";
@@ -182,6 +183,7 @@ function OrganizationForm({ form, setForm, onSubmit, saving }) {
   return <div className="mx-auto max-w-6xl"><PageHeader eyebrow="Create Organization" title="Set up a new organization" description="Add the company profile, subscription period and primary Admin CEO account." />
     <form onSubmit={submitForm} noValidate className="space-y-6">
       <FormSection icon={Building2} title="Organization profile" description="Basic company and contact information.">
+        {field("orgId", "Organization ID", { required: true, placeholder: "e.g. ORG-001" })}{field("numberOfLicenses", "Number of licenses", { type: "number", min: 1, step: 1, required: true, placeholder: "e.g. 10" })}
         {field("companyName", "Organization / company name", { required: true, placeholder: "e.g. Acme Industries" })}{field("category", "Business category", { required: true, placeholder: "e.g. Automobile" })}
         {field("description", "Description", { placeholder: "Briefly describe the organization", className: "md:col-span-2" })}
         {field("phone", "Organization phone", { required: true, inputMode: "numeric", maxLength: 10, icon: Phone, placeholder: "Up to 10 digits" })}
@@ -189,7 +191,7 @@ function OrganizationForm({ form, setForm, onSubmit, saving }) {
         {field("address", "Street address", { placeholder: "Building, street or area", className: "md:col-span-2" })}{field("city", "City", { placeholder: "City" })}{field("state", "State", { placeholder: "State" })}
       </FormSection>
       <FormSection icon={CalendarDays} title="Access period" description="Choose when the organization account becomes active.">
-        {field("startDate", "Start date", { type: "date", required: true, min: today(), icon: CalendarDays })}{field("endDate", "End date", { type: "date", min: form.startDate || today(), icon: CalendarDays })}
+        {field("startDate", "Start date", { type: "date", required: true, min: today(), icon: CalendarDays })}{field("endDate", "End date", { type: "date", required: true, min: form.startDate || today(), icon: CalendarDays })}
         <div className="md:col-span-2"><Select label="Account status" value={form.status} onChange={(e) => change("status", e.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option></Select></div>
       </FormSection>
       <FormSection icon={UserRound} title="Admin CEO account" description="These credentials will be used for the primary administrator.">
@@ -220,7 +222,8 @@ function Organizations({ rows, search, setSearch, statusFilter, setStatusFilter,
 
 function OrganizationTable({ rows, actions, compact = false }) {
   const columns = [
-    { header: "Organization", render: (row) => <div className="min-w-40"><p className="font-semibold text-slate-900">{row.companyName}</p><p className="text-xs text-slate-500">{row.category}</p></div> },
+    { header: "Organization", render: (row) => <div className="min-w-40"><p className="font-semibold text-slate-900">{row.companyName}</p><p className="text-xs text-slate-500">{row.orgId || "-"} · {row.category}</p></div> },
+    { header: "Licenses", render: (row) => row.numberOfLicenses ?? "-" },
     { header: "Admin CEO", render: (row) => <div className="min-w-44"><p>{row.adminName || "-"}</p><p className="text-xs text-slate-500">{row.adminEmail || "-"}</p></div> },
     { header: "Phone", render: (row) => <div className="min-w-32"><p>{row.adminPhone || "-"}</p><p className="text-xs text-slate-500">Org: {row.phone || "-"}</p></div> },
     { header: "Location", render: (row) => [row.city, row.state].filter(Boolean).join(", ") || "-" },
@@ -236,7 +239,7 @@ function ModalShell({ title, onClose, children, footer, wide = false }) { return
 
 function DetailsModal({ organization, onClose }) {
   if (!organization) return null;
-  const rows = [["Organization", organization.companyName], ["Category", organization.category], ["Description", organization.description], ["Organization phone", organization.phone], ["Address", organization.address], ["City / State", [organization.city, organization.state].filter(Boolean).join(", ")], ["Pincode", organization.pincode], ["Admin CEO", organization.adminName], ["Admin CEO email", organization.adminEmail], ["Admin CEO phone", organization.adminPhone], ["Total dealers", organization.totalDealers], ["Status", organization.status], ["Start date", formatDate(organization.startDate)], ["End date", organization.endDate ? formatDate(organization.endDate) : "Open-ended"], ["Created", formatDate(organization.createdAt)], ["Updated", formatDate(organization.updatedAt)]].filter(([, value]) => value !== null && value !== undefined && value !== "");
+  const rows = [["Organization ID", organization.orgId], ["Organization", organization.companyName], ["Number of licenses", organization.numberOfLicenses], ["Category", organization.category], ["Description", organization.description], ["Organization phone", organization.phone], ["Address", organization.address], ["City / State", [organization.city, organization.state].filter(Boolean).join(", ")], ["Pincode", organization.pincode], ["Admin CEO", organization.adminName], ["Admin CEO email", organization.adminEmail], ["Admin CEO phone", organization.adminPhone], ["Total dealers", organization.totalDealers], ["Status", organization.status], ["Start date", formatDate(organization.startDate)], ["End date", organization.endDate ? formatDate(organization.endDate) : "Open-ended"], ["Created", formatDate(organization.createdAt)], ["Updated", formatDate(organization.updatedAt)]].filter(([, value]) => value !== null && value !== undefined && value !== "");
   return <ModalShell title="Organization details" onClose={onClose}><div className="grid gap-3 sm:grid-cols-2">{rows.map(([label, value]) => <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 break-words font-medium text-slate-900">{String(value)}</p></div>)}</div></ModalShell>;
 }
 
@@ -244,7 +247,7 @@ function EditModal({ organization, setOrganization, onSubmit, saving }) {
   if (!organization) return null;
   const field = (key, label, props = {}) => <TextField label={label} value={organization[key] || ""} onChange={(e) => setOrganization({ ...organization, [key]: e.target.value })} {...props} />;
   return <ModalShell wide title="Edit organization" onClose={() => setOrganization(null)} footer={<><Button variant="ghost" onClick={() => setOrganization(null)}>Cancel</Button><Button type="submit" form="edit-organization" disabled={saving}>{saving ? "Saving..." : "Save changes"}</Button></>}><FormGrid id="edit-organization" onSubmit={onSubmit} className="grid gap-4 md:grid-cols-2">
-    {field("companyName", "Organization name", { required: true })}{field("category", "Category", { required: true })}{field("phone", "Organization phone")}{field("address", "Address")}{field("city", "City")}{field("state", "State")}{field("pincode", "Pincode")}{field("startDate", "Start date", { type: "date", required: true })}{field("endDate", "End date", { type: "date" })}{field("adminName", "Admin CEO name", { required: true })}{field("adminPhone", "Admin CEO phone")}{field("adminEmail", "Admin CEO email", { type: "email", required: true })}<Select label="Status" value={organization.status} onChange={(e) => setOrganization({ ...organization, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option></Select></FormGrid></ModalShell>;
+    {field("orgId", "Organization ID", { required: true })}{field("numberOfLicenses", "Number of licenses", { type: "number", min: 1, step: 1, required: true })}{field("companyName", "Organization name", { required: true })}{field("category", "Category", { required: true })}{field("phone", "Organization phone")}{field("address", "Address")}{field("city", "City")}{field("state", "State")}{field("pincode", "Pincode")}{field("startDate", "Start date", { type: "date", required: true })}{field("endDate", "End date", { type: "date", required: true })}{field("adminName", "Admin CEO name", { required: true })}{field("adminPhone", "Admin CEO phone")}{field("adminEmail", "Admin CEO email", { type: "email", required: true })}<Select label="Status" value={organization.status} onChange={(e) => setOrganization({ ...organization, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option></Select></FormGrid></ModalShell>;
 }
 
 function Notice({ tone, children }) { return <div className={`mb-4 rounded-lg border p-3 text-sm font-semibold ${tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-rose-200 bg-rose-50 text-rose-700"}`}>{children}</div>; }

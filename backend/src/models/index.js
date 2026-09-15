@@ -31,6 +31,7 @@ const User = sequelize.define("User", {
 });
 
 const Company = sequelize.define("Company", {
+  orgId: { type: DataTypes.STRING, allowNull: true, unique: true },
   companyName: { type: DataTypes.STRING, allowNull: false },
   category: { type: DataTypes.STRING, allowNull: false },
   description: DataTypes.TEXT,
@@ -44,6 +45,7 @@ const Company = sequelize.define("Company", {
   adminPhone: { type: DataTypes.STRING, allowNull: true },
   startDate: { type: DataTypes.DATEONLY, allowNull: false },
   endDate: { type: DataTypes.DATEONLY, allowNull: true },
+  numberOfLicenses: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
   paymentStatus: { type: DataTypes.ENUM("PENDING", "PAID", "REJECTED"), allowNull: false, defaultValue: "PAID" },
   subscriptionAmount: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
   approvedByFinance: { type: DataTypes.INTEGER, allowNull: true },

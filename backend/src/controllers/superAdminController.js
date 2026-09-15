@@ -10,7 +10,7 @@ const {
 } = require("../models");
 
 const adminRoles = ["ADMIN_CEO", "ADMIN"];
-const editableCompanyFields = ["companyName", "category", "description", "phone", "address", "city", "state", "pincode", "startDate", "endDate", "status"];
+const editableCompanyFields = ["orgId", "companyName", "category", "description", "phone", "address", "city", "state", "pincode", "numberOfLicenses", "startDate", "endDate", "status"];
 const activeStatuses = ["active"];
 const dependencyModels = [
   Dealer, Product, CompanyInventory, ProductVariant, DealerInventory, DealerSale,
@@ -43,7 +43,9 @@ function organizationValidation(body, { requireFields = false } = {}) {
   if (body.startDate && body.startDate < today) errors.push("Start date cannot be in the past");
   if (body.endDate && body.endDate < today) errors.push("End date cannot be in the past");
   if (body.startDate && body.endDate && body.endDate < body.startDate) errors.push("End date must be on or after the start date");
+  if (body.numberOfLicenses != null && (!Number.isInteger(Number(body.numberOfLicenses)) || Number(body.numberOfLicenses) < 1)) errors.push("Number of licenses must be a positive whole number");
   if (requireFields && !body.startDate) errors.push("Start date is required");
+  if (requireFields && !body.endDate) errors.push("End date is required");
   return errors[0];
 }
 
@@ -114,7 +116,7 @@ exports.dashboard = asyncHandler(async (req, res) => {
 
 exports.createOrganization = asyncHandler(async (req, res) => {
   const body = req.body;
-  const required = ["companyName", "category", "phone", "startDate", "adminName", "adminEmail", "adminPhone", "password"];
+  const required = ["orgId", "companyName", "category", "phone", "numberOfLicenses", "startDate", "endDate", "adminName", "adminEmail", "adminPhone", "password"];
   const missing = required.filter((field) => !String(body[field] || "").trim());
   if (missing.length) return res.status(400).json({ message: `Required fields: ${missing.join(", ")}` });
   if (body.confirmPassword != null && body.password !== body.confirmPassword) return res.status(400).json({ message: "Passwords do not match" });
@@ -122,10 +124,14 @@ exports.createOrganization = asyncHandler(async (req, res) => {
   const validationError = organizationValidation(body, { requireFields: true });
   if (validationError) return res.status(400).json({ message: validationError });
   const email = String(body.adminEmail).trim().toLowerCase();
+  const orgId = String(body.orgId).trim();
   if (await User.findOne({ where: { email } })) return res.status(409).json({ message: "A user with this email already exists" });
+  if (await Company.findOne({ where: { orgId } })) return res.status(409).json({ message: "An organization with this organization ID already exists" });
 
   const result = await sequelize.transaction(async (transaction) => {
     const companyValues = pick(body, editableCompanyFields);
+    companyValues.orgId = orgId;
+    companyValues.numberOfLicenses = Number(body.numberOfLicenses);
     companyValues.status = normalizeStatus(companyValues.status);
     Object.assign(companyValues, { adminName: body.adminName.trim(), adminEmail: email, adminPhone: body.adminPhone.trim() });
     const company = await Company.create(companyValues, { transaction });
@@ -143,6 +149,7 @@ exports.listOrganizations = asyncHandler(async (req, res) => {
   if (req.query.category) where.category = req.query.category;
   if (req.query.status) where.status = req.query.status;
   if (req.query.search) where[Op.or] = [
+    { orgId: { [Op.like]: `%${req.query.search}%` } },
     { companyName: { [Op.like]: `%${req.query.search}%` } },
     { category: { [Op.like]: `%${req.query.search}%` } },
     { adminName: { [Op.like]: `%${req.query.search}%` } },
@@ -170,6 +177,13 @@ exports.updateOrganization = asyncHandler(async (req, res) => {
   }
   if (validationError) return res.status(400).json({ message: validationError });
   const updates = pick(req.body, editableCompanyFields);
+  if (Object.prototype.hasOwnProperty.call(updates, "orgId")) {
+    updates.orgId = String(updates.orgId || "").trim();
+    if (!updates.orgId) return res.status(400).json({ message: "Organization ID is required" });
+    const duplicateOrg = await Company.findOne({ where: { orgId: updates.orgId, id: { [Op.ne]: company.id } } });
+    if (duplicateOrg) return res.status(409).json({ message: "An organization with this organization ID already exists" });
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "numberOfLicenses")) updates.numberOfLicenses = Number(updates.numberOfLicenses);
   if (updates.status) updates.status = normalizeStatus(updates.status);
   const admin = await adminFor(company.id);
   const adminUpdates = {};
