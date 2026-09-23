@@ -1610,7 +1610,7 @@ EOF
 
                         return true
                     }
-
+//test
                     waitForTargetHealthy(
                         FRONTEND_TARGET_GROUP_ARN,
                         "Frontend"
