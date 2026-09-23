@@ -21,6 +21,8 @@ pipeline {
 
         ECS_CLUSTER = 'its360-cluster'
 
+        S3_ENV_BUCKET = 'its360-secure-env-file'
+
         GITHUB_PAT = credentials('hrms-git-token')
 
         GIT_REPO = "https://${GITHUB_PAT}@github.com/IT-SOFTLAB/DMS-ONE.git"
@@ -210,6 +212,7 @@ pipeline {
                                         name=FRONTEND_TAG,value=${FRONTEND_TAG},type=PLAINTEXT \
                                         name=BACKEND_SECRET_KEY,value=${BACKEND_SECRET_KEY},type=PLAINTEXT \
                                         name=FRONTEND_SECRET_KEY,value=${FRONTEND_SECRET_KEY},type=PLAINTEXT \
+                                        name=FRONTEND_ENV_BUCKET,value=${S3_ENV_BUCKET},type=PLAINTEXT \
                                     --query 'build.id' \
                                     --output text
                             """,

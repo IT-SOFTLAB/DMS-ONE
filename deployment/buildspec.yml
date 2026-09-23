@@ -4,25 +4,27 @@ phases:
   pre_build:
     commands:
       - echo "=========================================="
-      - echo "AWS CodeBuild"
+      - echo "AWS CodeBuild - DMS"
       - echo "=========================================="
-      - echo "Environment : ${ENVIRONMENT}"
-      - echo "Project     : ${PROJECT_NAME}"
-      - echo "Git Tag     : ${GIT_TAG}"
-      - echo "Frontend Tag: ${FRONTEND_TAG}"
-      - echo "Backend Tag : ${BACKEND_TAG}"
+      - echo "Environment - ${ENVIRONMENT}"
+      - echo "Project - ${PROJECT_NAME}"
+      - echo "Git Tag - ${GIT_TAG}"
+      - echo "Frontend Tag - ${FRONTEND_TAG}"
+      - echo "Backend Tag - ${BACKEND_TAG}"
       - echo "=========================================="
 
       - AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
       - ECR_REGISTRY=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
 
-      - echo "AWS Account : ${AWS_ACCOUNT_ID}"
-      - echo "ECR Registry: ${ECR_REGISTRY}"
+      - echo "AWS Account - ${AWS_ACCOUNT_ID}"
+      - echo "ECR Registry - ${ECR_REGISTRY}"
 
       - aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-      - echo "Logged in to ECR"
 
-      
+      - echo "ECR login successful"
+
+      # Download frontend environment file from S3.
+      # FRONTEND_ENV_BUCKET and FRONTEND_SECRET_KEY are supplied by Jenkins.
       - echo "Downloading frontend environment file from S3..."
       - aws s3 cp "s3://${FRONTEND_ENV_BUCKET}/${FRONTEND_SECRET_KEY}" ./frontend/.env
       - test -s ./frontend/.env
@@ -57,7 +59,7 @@ phases:
       - docker push ${ECR_REGISTRY}/${PROJECT_NAME}-backend:${BACKEND_TAG}
 
       - echo "=========================================="
-      - echo "Cleaning up frontend environment file"
+      - echo "Removing frontend environment file"
       - echo "=========================================="
 
       - rm -f ./frontend/.env
@@ -65,5 +67,5 @@ phases:
       - echo "=========================================="
       - echo "CodeBuild Completed"
       - echo "=========================================="
-      - echo "Frontend: ${ECR_REGISTRY}/${PROJECT_NAME}-frontend:${FRONTEND_TAG}"
-      - echo "Backend : ${ECR_REGISTRY}/${PROJECT_NAME}-backend:${BACKEND_TAG}"
+      - echo "Frontend image - ${ECR_REGISTRY}/${PROJECT_NAME}-frontend:${FRONTEND_TAG}"
+      - echo "Backend image - ${ECR_REGISTRY}/${PROJECT_NAME}-backend:${BACKEND_TAG}"
