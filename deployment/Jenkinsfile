@@ -439,7 +439,7 @@ pipeline {
                 "healthCheck": {
                     "command": [
                         "CMD-SHELL",
-                        "curl -f http://localhost/ || exit 1"
+                        "curl -f http://localhost/health || exit 1"
                     ],
 
                     "interval": 30,
@@ -766,7 +766,7 @@ EOF
                     env.FRONTEND_LB_PORT = "80"
                     env.BACKEND_LB_PORT = "5000"
 
-                    env.FRONTEND_HEALTH_PATH = "/"
+                    env.FRONTEND_HEALTH_PATH = "/health"
                     env.BACKEND_HEALTH_PATH = "/api/health"
 
 
@@ -1384,6 +1384,8 @@ EOF
                     echo "🏥 ECS APPLICATION HEALTH CHECK"
                     echo "=========================================="
 
+                
+
                     if (!env.ECS_CLUSTER) {
                         error "❌ ECS_CLUSTER is not available."
                     }
@@ -1404,7 +1406,7 @@ EOF
                         error "❌ BACKEND_TARGET_GROUP_ARN is not available."
                     }
 
-                   
+
                     echo ""
                     echo "🌐 Checking frontend ECS service health..."
 
@@ -1429,7 +1431,7 @@ EOF
                     echo "Frontend ECS status:"
                     echo frontendHealth
 
-                   
+                    
                     echo ""
                     echo "⚙️ Checking backend ECS service health..."
 
@@ -1454,9 +1456,8 @@ EOF
                     echo "Backend ECS status:"
                     echo backendHealth
 
-                   
                     echo ""
-                    echo "🔍 Checking frontend and backend task health..."
+                    echo "🔍 Checking frontend ECS task..."
 
                     def frontendTaskHealth = sh(
                         script: """
@@ -1475,6 +1476,12 @@ EOF
                         error "❌ No RUNNING frontend ECS task found."
                     }
 
+                    echo "✅ Frontend has RUNNING task(s)."
+
+
+                    echo ""
+                    echo "🔍 Checking backend ECS task..."
+
                     def backendTaskHealth = sh(
                         script: """
                             aws ecs list-tasks \
@@ -1492,92 +1499,129 @@ EOF
                         error "❌ No RUNNING backend ECS task found."
                     }
 
-                    echo "✅ Frontend has RUNNING task(s)."
                     echo "✅ Backend has RUNNING task(s)."
 
                     
+                    def waitForTargetHealthy = { targetGroupArn, targetName ->
 
-                    echo ""
-                    echo "🌐 Checking frontend ALB target health..."
+                        echo ""
+                        echo "=========================================="
+                        echo "⏳ Waiting for ${targetName} ALB target..."
+                        echo "=========================================="
 
-                    def frontendTargetHealth = sh(
-                        script: """
-                            aws elbv2 describe-target-health \
-                                --target-group-arn ${FRONTEND_TARGET_GROUP_ARN} \
-                                --region ${AWS_REGION} \
-                                --query 'TargetHealthDescriptions[].TargetHealth.State' \
-                                --output text
-                        """,
-                        returnStdout: true
-                    ).trim()
+                        // 18 attempts × 10 seconds = 3 minutes
+                        int maxAttempts = 18
+                        int waitSeconds = 10
 
-                    echo "Frontend target health: ${frontendTargetHealth}"
+                        boolean healthy = false
 
-                    if (!frontendTargetHealth) {
-                        error "❌ Frontend target group has no registered targets."
+                        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+
+                            def targetHealth = sh(
+                                script: """
+                                    aws elbv2 describe-target-health \
+                                        --target-group-arn ${targetGroupArn} \
+                                        --region ${AWS_REGION} \
+                                        --query 'TargetHealthDescriptions[].TargetHealth.State' \
+                                        --output text
+                                """,
+                                returnStdout: true
+                            ).trim()
+
+                            echo ""
+                            echo "🔎 ${targetName} ALB target health check ${attempt}/${maxAttempts}"
+                            echo "Current state: ${targetHealth ?: 'NO_TARGET'}"
+
+                            // No target registered yet
+                            if (!targetHealth || targetHealth == "None") {
+
+                                if (attempt < maxAttempts) {
+                                    echo "⏳ No target registered yet. Waiting ${waitSeconds} seconds..."
+                                    sleep(time: waitSeconds, unit: 'SECONDS')
+                                    continue
+                                }
+
+                                error "❌ ${targetName} ALB target group has no registered targets."
+                            }
+
+                            // Check whether every target is healthy
+                            def unhealthyTargets = sh(
+                                script: """
+                                    aws elbv2 describe-target-health \
+                                        --target-group-arn ${targetGroupArn} \
+                                        --region ${AWS_REGION} \
+                                        --query 'TargetHealthDescriptions[?TargetHealth.State!=`healthy`].TargetHealth.State' \
+                                        --output text
+                                """,
+                                returnStdout: true
+                            ).trim()
+
+                            if (!unhealthyTargets) {
+
+                                healthy = true
+
+                                echo ""
+                                echo "✅ ${targetName} ALB target(s) are HEALTHY."
+                                break
+                            }
+
+                            // Target is still INITIAL or temporarily UNHEALTHY
+                            echo "⏳ ${targetName} target is not healthy yet."
+                            echo "Current state(s): ${unhealthyTargets}"
+
+                            if (attempt < maxAttempts) {
+                                echo "Waiting ${waitSeconds} seconds before checking again..."
+                                sleep(time: waitSeconds, unit: 'SECONDS')
+                            }
+                        }
+
+                        
+
+                        if (!healthy) {
+
+                            echo ""
+                            echo "=========================================="
+                            echo "❌ ${targetName} ALB HEALTH CHECK FAILED"
+                            echo "=========================================="
+
+                            echo "Fetching detailed target health information..."
+
+                            def targetDetails = sh(
+                                script: """
+                                    aws elbv2 describe-target-health \
+                                        --target-group-arn ${targetGroupArn} \
+                                        --region ${AWS_REGION} \
+                                        --query 'TargetHealthDescriptions[].{
+                                            Target:Target.Id,
+                                            Port:Target.Port,
+                                            State:TargetHealth.State,
+                                            Reason:TargetHealth.Reason,
+                                            Description:TargetHealth.Description
+                                        }' \
+                                        --output table
+                                """,
+                                returnStdout: true
+                            ).trim()
+
+                            echo targetDetails
+
+                            error "❌ ${targetName} ALB target did not become healthy within 3 minutes."
+                        }
+
+                        return true
                     }
 
-                    def frontendUnhealthy = sh(
-                        script: """
-                            aws elbv2 describe-target-health \
-                                --target-group-arn ${FRONTEND_TARGET_GROUP_ARN} \
-                                --region ${AWS_REGION} \
-                                --query 'TargetHealthDescriptions[?TargetHealth.State!=`healthy`].TargetHealth.State' \
-                                --output text
-                        """,
-                        returnStdout: true
-                    ).trim()
+                    waitForTargetHealthy(
+                        FRONTEND_TARGET_GROUP_ARN,
+                        "Frontend"
+                    )
 
-                    if (frontendUnhealthy) {
-                        echo "❌ Frontend unhealthy targets detected:"
-                        echo "${frontendUnhealthy}"
-                        error "❌ Frontend ALB target health check failed."
-                    }
-
-                    echo "✅ Frontend ALB targets are healthy."
-
-                    
-                    echo ""
-                    echo "⚙️ Checking backend ALB target health..."
-
-                    def backendTargetHealth = sh(
-                        script: """
-                            aws elbv2 describe-target-health \
-                                --target-group-arn ${BACKEND_TARGET_GROUP_ARN} \
-                                --region ${AWS_REGION} \
-                                --query 'TargetHealthDescriptions[].TargetHealth.State' \
-                                --output text
-                        """,
-                        returnStdout: true
-                    ).trim()
-
-                    echo "Backend target health: ${backendTargetHealth}"
-
-                    if (!backendTargetHealth) {
-                        error "❌ Backend target group has no registered targets."
-                    }
-
-                    def backendUnhealthy = sh(
-                        script: """
-                            aws elbv2 describe-target-health \
-                                --target-group-arn ${BACKEND_TARGET_GROUP_ARN} \
-                                --region ${AWS_REGION} \
-                                --query 'TargetHealthDescriptions[?TargetHealth.State!=`healthy`].TargetHealth.State' \
-                                --output text
-                        """,
-                        returnStdout: true
-                    ).trim()
-
-                    if (backendUnhealthy) {
-                        echo "❌ Backend unhealthy targets detected:"
-                        echo "${backendUnhealthy}"
-                        error "❌ Backend ALB target health check failed."
-                    }
-
-                    echo "✅ Backend ALB targets are healthy."
+                    waitForTargetHealthy(
+                        BACKEND_TARGET_GROUP_ARN,
+                        "Backend"
+                    )
 
                 
-
                     echo ""
                     echo "=========================================="
                     echo "✅ HEALTH CHECK PASSED"
