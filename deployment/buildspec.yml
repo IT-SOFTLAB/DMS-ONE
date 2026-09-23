@@ -23,10 +23,8 @@ phases:
 
       - echo "ECR login successful"
 
-      # Download frontend environment file from S3.
-      # FRONTEND_ENV_BUCKET and FRONTEND_SECRET_KEY are supplied by Jenkins.
-      - echo "Downloading frontend environment file from S3..."
-      - aws s3 cp "s3://${FRONTEND_ENV_BUCKET}/${FRONTEND_SECRET_KEY}" ./frontend/.env
+          - echo "Downloading frontend environment file from S3..."
+      - aws s3 cp "s3://${S3_ENV_BUCKET}/${FRONTEND_SECRET_KEY}" ./frontend/.env
       - test -s ./frontend/.env
       - echo "Frontend environment file downloaded successfully"
 

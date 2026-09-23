@@ -39,6 +39,7 @@ pipeline {
         stage('Validate Git Tag') {
             steps {
                 script {
+                    // Use tag(s) pointing at HEAD to avoid picking an unrelated latest tag
                     env.TAG_NAME = sh(script: 'git tag --points-at HEAD | sort -V | tail -n 1 || echo ""', returnStdout: true).trim()
 
                     if (!env.TAG_NAME) {
@@ -46,6 +47,7 @@ pipeline {
                     }
                     echo "📌 Detected Tag: ${env.TAG_NAME}"
 
+                    // Extract branch from which the tag originated.
                     env.BRANCH = sh(script: "git branch -r --contains ${env.TAG_NAME} | grep -Eo 'origin/(main|staging)' | head -n 1 | cut -d '/' -f2 || echo ''", returnStdout: true).trim()
                     if (!env.BRANCH) {
                         error "❌ Invalid tag! Tags must be from 'main', 'staging' branches."
@@ -81,7 +83,7 @@ pipeline {
         stage('Determine secret key file') {
             steps {
                 script {
-                    
+                
                     if (!env.ENVIRONMENT) {
                         error """
                         ❌ Secret key determination failed.
@@ -131,6 +133,8 @@ pipeline {
                     echo "CodeBuild   : ${CODEBUILD_PROJECT_NAME}"
                     echo "============================================"
 
+                  
+
                     def codeBuildStatus = sh(
                         script: """
                             aws codebuild batch-get-projects \
@@ -142,7 +146,9 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
-                    if (!codeBuildStatus || codeBuildStatus == 'None' || codeBuildStatus == 'null') {
+                    if (!codeBuildStatus ||
+                        codeBuildStatus == 'None' ||
+                        codeBuildStatus == 'null') {
 
                         error """
                         ❌ AWS CodeBuild project not found.
@@ -155,6 +161,7 @@ pipeline {
                     }
 
                     echo "✅ CodeBuild project exists: ${codeBuildStatus}"
+
 
                     def backendExists = sh(
                         script: """
@@ -212,14 +219,16 @@ pipeline {
                                         name=FRONTEND_TAG,value=${FRONTEND_TAG},type=PLAINTEXT \
                                         name=BACKEND_SECRET_KEY,value=${BACKEND_SECRET_KEY},type=PLAINTEXT \
                                         name=FRONTEND_SECRET_KEY,value=${FRONTEND_SECRET_KEY},type=PLAINTEXT \
-                                        name=FRONTEND_ENV_BUCKET,value=${S3_ENV_BUCKET},type=PLAINTEXT \
+                                        name=S3_ENV_BUCKET,value=${S3_ENV_BUCKET},type=PLAINTEXT \
                                     --query 'build.id' \
                                     --output text
                             """,
                             returnStdout: true
                         ).trim()
 
-                        if (!buildId || buildId == 'None' || buildId == 'null') {
+                        if (!buildId ||
+                            buildId == 'None' ||
+                            buildId == 'null') {
 
                             error "❌ Failed to start AWS CodeBuild."
                         }
@@ -337,6 +346,7 @@ pipeline {
 
                     echo "📝 Generating frontend ECS task definition..."
 
+
                     env.FRONTEND_TASK_FAMILY = "itsoftlab-360-${PROJECT_NAME}-frontend"
 
                     env.FRONTEND_CONTAINER_NAME = "${PROJECT_NAME}-frontend"
@@ -357,90 +367,91 @@ pipeline {
                     echo "🔐 Environment File : ${FRONTEND_ENV_FILE_ARN}"
                     echo "📋 Log Group        : ${FRONTEND_LOG_GROUP}"
 
+
                     sh """
-                        cat > frontend-task-definition.json <<EOF
+        cat > frontend-task-definition.json <<EOF
+    {
+        "family": "${FRONTEND_TASK_FAMILY}",
+
+        "executionRoleArn": "${FRONTEND_EXECUTION_ROLE}",
+
+        "networkMode": "awsvpc",
+
+        "requiresCompatibilities": [
+            "FARGATE"
+        ],
+
+        "cpu": "1024",
+
+        "memory": "3072",
+
+        "runtimePlatform": {
+            "cpuArchitecture": "X86_64",
+            "operatingSystemFamily": "LINUX"
+        },
+
+        "containerDefinitions": [
+            {
+                "name": "${FRONTEND_CONTAINER_NAME}",
+
+                "image": "${FRONTEND_IMAGE}",
+
+                "cpu": 0,
+
+                "portMappings": [
                     {
-                        "family": "${FRONTEND_TASK_FAMILY}",
-
-                        "executionRoleArn": "${FRONTEND_EXECUTION_ROLE}",
-
-                        "networkMode": "awsvpc",
-
-                        "requiresCompatibilities": [
-                            "FARGATE"
-                        ],
-
-                        "cpu": "1024",
-
-                        "memory": "3072",
-
-                        "runtimePlatform": {
-                            "cpuArchitecture": "X86_64",
-                            "operatingSystemFamily": "LINUX"
-                        },
-
-                        "containerDefinitions": [
-                            {
-                                "name": "${FRONTEND_CONTAINER_NAME}",
-
-                                "image": "${FRONTEND_IMAGE}",
-
-                                "cpu": 0,
-
-                                "portMappings": [
-                                    {
-                                        "containerPort": ${FRONTEND_CONTAINER_PORT},
-                                        "hostPort": 80,
-                                        "protocol": "tcp",
-                                        "name": "${FRONTEND_CONTAINER_NAME}-80-tcp",
-                                        "appProtocol": "http"
-                                    }
-                                ],
-
-                                "essential": true,
-
-                                "environment": [],
-
-                                "environmentFiles": [
-                                    {
-                                        "value": "${FRONTEND_ENV_FILE_ARN}",
-                                        "type": "s3"
-                                    }
-                                ],
-
-                                "mountPoints": [],
-
-                                "volumesFrom": [],
-
-                                "ulimits": [],
-
-                                "logConfiguration": {
-                                    "logDriver": "awslogs",
-
-                                    "options": {
-                                        "awslogs-group": "${FRONTEND_LOG_GROUP}",
-                                        "awslogs-create-group": "true",
-                                        "awslogs-region": "${AWS_REGION}",
-                                        "awslogs-stream-prefix": "ecs"
-                                    }
-                                },
-
-                                "healthCheck": {
-                                    "command": [
-                                        "CMD-SHELL",
-                                        "curl -f http://localhost/ || exit 1"
-                                    ],
-
-                                    "interval": 30,
-                                    "timeout": 5,
-                                    "retries": 3,
-                                    "startPeriod": 10
-                                }
-                            }
-                        ]
+                        "containerPort": ${FRONTEND_CONTAINER_PORT},
+                        "hostPort": 80,
+                        "protocol": "tcp",
+                        "name": "${FRONTEND_CONTAINER_NAME}-80-tcp",
+                        "appProtocol": "http"
                     }
-                    EOF
-                                """
+                ],
+
+                "essential": true,
+
+                "environment": [],
+
+                "environmentFiles": [
+                    {
+                        "value": "${FRONTEND_ENV_FILE_ARN}",
+                        "type": "s3"
+                    }
+                ],
+
+                "mountPoints": [],
+
+                "volumesFrom": [],
+
+                "ulimits": [],
+
+                "logConfiguration": {
+                    "logDriver": "awslogs",
+
+                    "options": {
+                        "awslogs-group": "${FRONTEND_LOG_GROUP}",
+                        "awslogs-create-group": "true",
+                        "awslogs-region": "${AWS_REGION}",
+                        "awslogs-stream-prefix": "ecs"
+                    }
+                },
+
+                "healthCheck": {
+                    "command": [
+                        "CMD-SHELL",
+                        "curl -f http://localhost/ || exit 1"
+                    ],
+
+                    "interval": 30,
+                    "timeout": 5,
+                    "retries": 3,
+                    "startPeriod": 10
+                }
+            }
+        ]
+    }
+EOF
+"""
 
 
                     echo "🔍 Validating generated task definition..."
@@ -450,6 +461,8 @@ pipeline {
                     """
 
                     echo "✅ Frontend task definition JSON is valid."
+
+
 
                     echo ""
                     echo "=========================================="
@@ -490,6 +503,7 @@ pipeline {
 
                     echo "📝 Generating backend ECS task definition..."
 
+
                     env.BACKEND_TASK_FAMILY = "itsoftlab-360-${PROJECT_NAME}-backend"
 
                     env.BACKEND_CONTAINER_NAME = "${PROJECT_NAME}-backend"
@@ -500,7 +514,11 @@ pipeline {
 
                     env.BACKEND_LOG_GROUP = "/ecs/${BACKEND_TASK_FAMILY}"
 
+                    
+
                     env.BACKEND_ENV_FILE_ARN =  "arn:aws:s3:::its360-secure-env-file/${BACKEND_SECRET_KEY}"
+
+
 
                     echo "📦 Task Family       : ${BACKEND_TASK_FAMILY}"
                     echo "📦 Container         : ${BACKEND_CONTAINER_NAME}"
@@ -510,91 +528,93 @@ pipeline {
                     echo "📋 Log Group         : ${BACKEND_LOG_GROUP}"
 
 
+
                     sh """
-                        cat > backend-task-definition.json <<EOF
+    cat > backend-task-definition.json <<EOF
 
-                        {
-                            "family": "${BACKEND_TASK_FAMILY}",
+    {
+        "family": "${BACKEND_TASK_FAMILY}",
 
-                            "executionRoleArn": "${BACKEND_EXECUTION_ROLE}",
+        "executionRoleArn": "${BACKEND_EXECUTION_ROLE}",
 
-                            "networkMode": "awsvpc",
+        "networkMode": "awsvpc",
 
-                            "requiresCompatibilities": [
-                                "FARGATE"
-                            ],
+        "requiresCompatibilities": [
+            "FARGATE"
+        ],
 
-                            "cpu": "1024",
+        "cpu": "1024",
 
-                            "memory": "3072",
+        "memory": "3072",
 
-                            "runtimePlatform": {
-                                "cpuArchitecture": "X86_64",
-                                "operatingSystemFamily": "LINUX"
-                            },
+        "runtimePlatform": {
+            "cpuArchitecture": "X86_64",
+            "operatingSystemFamily": "LINUX"
+        },
 
-                            "containerDefinitions": [
-                                {
-                                    "name": "${BACKEND_CONTAINER_NAME}",
+        "containerDefinitions": [
+            {
+                "name": "${BACKEND_CONTAINER_NAME}",
 
-                                    "image": "${BACKEND_IMAGE}",
+                "image": "${BACKEND_IMAGE}",
 
-                                    "cpu": 0,
+                "cpu": 0,
 
-                                    "portMappings": [
-                                        {
-                                            "containerPort": ${BACKEND_CONTAINER_PORT},
-                                            "hostPort": 5000,
-                                            "protocol": "tcp",
-                                            "name": "${BACKEND_CONTAINER_NAME}-5000-tcp",
-                                            "appProtocol": "http"
-                                        }
-                                    ],
+                "portMappings": [
+                    {
+                        "containerPort": ${BACKEND_CONTAINER_PORT},
+                        "hostPort": 5000,
+                        "protocol": "tcp",
+                        "name": "${BACKEND_CONTAINER_NAME}-5000-tcp",
+                        "appProtocol": "http"
+                    }
+                ],
 
-                                    "essential": true,
+                "essential": true,
 
-                                    "environment": [],
+                "environment": [],
 
-                                    "environmentFiles": [
-                                        {
-                                            "value": "${BACKEND_ENV_FILE_ARN}",
-                                            "type": "s3"
-                                        }
-                                    ],
+                "environmentFiles": [
+                    {
+                        "value": "${BACKEND_ENV_FILE_ARN}",
+                        "type": "s3"
+                    }
+                ],
 
-                                    "mountPoints": [],
+                "mountPoints": [],
 
-                                    "volumesFrom": [],
+                "volumesFrom": [],
 
-                                    "ulimits": [],
+                "ulimits": [],
 
-                                    "logConfiguration": {
-                                        "logDriver": "awslogs",
+                "logConfiguration": {
+                    "logDriver": "awslogs",
 
-                                        "options": {
-                                            "awslogs-group": "${BACKEND_LOG_GROUP}",
-                                            "awslogs-create-group": "true",
-                                            "awslogs-region": "${AWS_REGION}",
-                                            "awslogs-stream-prefix": "ecs"
-                                        }
-                                    },
+                    "options": {
+                        "awslogs-group": "${BACKEND_LOG_GROUP}",
+                        "awslogs-create-group": "true",
+                        "awslogs-region": "${AWS_REGION}",
+                        "awslogs-stream-prefix": "ecs"
+                    }
+                },
 
-                                    "healthCheck": {
-                                        "command": [
-                                            "CMD-SHELL",
-                                            "curl --fail --silent http://127.0.0.1:5000/api/health > /dev/null || exit 1"
-                                        ],
-                                        "interval": 30,
-                                        "timeout": 5,
-                                        "retries": 3,
-                                        "startPeriod": 60
-                                    }
-                                }
-                            ]
-                        }
+                "healthCheck": {
+                    "command": [
+                        "CMD-SHELL",
+                        "curl --fail --silent http://127.0.0.1:5000/api/health > /dev/null || exit 1"
+                    ],
+                    "interval": 30,
+                    "timeout": 5,
+                    "retries": 3,
+                    "startPeriod": 60
+                }
+            }
+        ]
+    }
 
-                        EOF
-                    """
+EOF
+"""
+
 
 
                     echo "🔍 Validating generated backend task definition..."
@@ -604,6 +624,7 @@ pipeline {
                     """
 
                     echo "✅ Backend task definition JSON is valid."
+
 
                     echo ""
                     echo "=========================================="
@@ -644,6 +665,7 @@ pipeline {
 
                     echo "📋 Registering ECS task definitions..."
 
+
                     echo "🚀 Registering frontend task definition..."
 
                     def frontendTaskDefinitionArn = sh(
@@ -666,6 +688,7 @@ pipeline {
                     echo "✅ Frontend task definition registered:"
                     echo "${env.FRONTEND_TASK_DEFINITION_ARN}"
 
+
                     echo "🚀 Registering backend task definition..."
 
                     def backendTaskDefinitionArn = sh(
@@ -687,6 +710,7 @@ pipeline {
 
                     echo "✅ Backend task definition registered:"
                     echo "${env.BACKEND_TASK_DEFINITION_ARN}"
+
 
                     echo ""
                     echo "=========================================="
@@ -711,6 +735,8 @@ pipeline {
 
                     echo "🚀 Starting ECS infrastructure and service deployment..."
 
+
+
                     env.ECS_CLUSTER = "its360-cluster"
 
                     env.FRONTEND_SERVICE = "${PROJECT_NAME}-frontend-service"
@@ -728,7 +754,8 @@ pipeline {
                     env.FRONTEND_CONTAINER_PORT = "80"
                     env.BACKEND_CONTAINER_PORT = "5000"
 
-                    env.VPC_ID = "vpc-08bb09e9a7c10b095default"
+
+                    env.VPC_ID = "vpc-08bb09e9a7c10b095"
 
                     env.SUBNET_1 = "subnet-06fe5b3d8e95ad780"
                     env.SUBNET_2 = "subnet-0cf9fd6f508540589"
@@ -741,6 +768,8 @@ pipeline {
 
                     env.FRONTEND_HEALTH_PATH = "/"
                     env.BACKEND_HEALTH_PATH = "/api/health"
+
+
 
                     echo "🔍 Checking ECS cluster..."
 
@@ -765,6 +794,9 @@ pipeline {
                     }
 
                     echo "✅ ECS cluster is ACTIVE."
+
+
+                
 
                     echo ""
                     echo "=========================================="
@@ -817,6 +849,7 @@ pipeline {
                     echo "Frontend ALB ARN:"
                     echo "${FRONTEND_LOAD_BALANCER_ARN}"
 
+
                     echo ""
                     echo "=========================================="
                     echo "⚙️ BACKEND LOAD BALANCER"
@@ -867,6 +900,7 @@ pipeline {
 
                     echo "Backend ALB ARN:"
                     echo "${BACKEND_LOAD_BALANCER_ARN}"
+
 
                     echo ""
                     echo "=========================================="
@@ -926,6 +960,7 @@ pipeline {
                     echo "Frontend Target Group ARN:"
                     echo "${FRONTEND_TARGET_GROUP_ARN}"
 
+
                     echo ""
                     echo "=========================================="
                     echo "🎯 BACKEND TARGET GROUP"
@@ -984,6 +1019,7 @@ pipeline {
 
                     echo "Backend Target Group ARN:"
                     echo "${BACKEND_TARGET_GROUP_ARN}"
+
 
 
                     echo ""
@@ -1100,6 +1136,7 @@ pipeline {
 
                     env.BACKEND_LISTENER_ARN = backendListenerArn
 
+
                     echo ""
                     echo "=========================================="
                     echo "🌐 FRONTEND ECS SERVICE"
@@ -1161,6 +1198,8 @@ pipeline {
                         echo "✅ Frontend ECS service updated."
                     }
 
+
+
                     echo ""
                     echo "=========================================="
                     echo "⚙️ BACKEND ECS SERVICE"
@@ -1221,6 +1260,8 @@ pipeline {
                         echo "✅ Backend ECS service updated."
                     }
 
+
+
                     echo ""
                     echo "=========================================="
                     echo "✅ ECS DEPLOYMENT CONFIGURED"
@@ -1264,6 +1305,7 @@ pipeline {
                     echo "⏳ WAITING FOR ECS SERVICES TO STABILIZE"
                     echo "=========================================="
 
+                   
 
                     if (!env.ECS_CLUSTER) {
                         error "❌ ECS_CLUSTER is not available."
@@ -1293,6 +1335,7 @@ pipeline {
 
                     echo "✅ Frontend ECS service is stable."
 
+
                     echo ""
                     echo "⚙️ Waiting for backend ECS service..."
 
@@ -1305,6 +1348,7 @@ pipeline {
 
                     echo "✅ Backend ECS service is stable."
 
+                 
                     echo ""
                     echo "🔍 Verifying final ECS service status..."
 
@@ -1360,6 +1404,7 @@ pipeline {
                         error "❌ BACKEND_TARGET_GROUP_ARN is not available."
                     }
 
+                   
                     echo ""
                     echo "🌐 Checking frontend ECS service health..."
 
@@ -1384,6 +1429,7 @@ pipeline {
                     echo "Frontend ECS status:"
                     echo frontendHealth
 
+                   
                     echo ""
                     echo "⚙️ Checking backend ECS service health..."
 
@@ -1408,6 +1454,7 @@ pipeline {
                     echo "Backend ECS status:"
                     echo backendHealth
 
+                   
                     echo ""
                     echo "🔍 Checking frontend and backend task health..."
 
@@ -1448,6 +1495,8 @@ pipeline {
                     echo "✅ Frontend has RUNNING task(s)."
                     echo "✅ Backend has RUNNING task(s)."
 
+                    
+
                     echo ""
                     echo "🌐 Checking frontend ALB target health..."
 
@@ -1487,6 +1536,7 @@ pipeline {
 
                     echo "✅ Frontend ALB targets are healthy."
 
+                    
                     echo ""
                     echo "⚙️ Checking backend ALB target health..."
 
@@ -1525,6 +1575,8 @@ pipeline {
                     }
 
                     echo "✅ Backend ALB targets are healthy."
+
+                
 
                     echo ""
                     echo "=========================================="
